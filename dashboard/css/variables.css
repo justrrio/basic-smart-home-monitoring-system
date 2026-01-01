@@ -1,0 +1,20 @@
+/* ========== CSS VARIABLES ========== */
+:root {
+    --bg-primary: #0f0f12;
+    --bg-secondary: #1a1a1f;
+    --bg-tertiary: #25252c;
+    --text-primary: #ffffff;
+    --text-secondary: #9ca3af;
+    --text-tertiary: #6b7280;
+    --accent-primary: #3b82f6;
+    --accent-success: #10b981;
+    --accent-warning: #f59e0b;
+    --accent-danger: #ef4444;
+    --border-color: #2d2d35;
+    --radius-lg: 12px;
+    --radius-md: 8px;
+    --radius-sm: 6px;
+    --transition: 200ms ease-in-out;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}

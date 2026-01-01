@@ -1,0 +1,119 @@
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+/*
+ * Project: Smart Appliance Monitor (Mesin Cuci/Pompa)
+ * Board: ESP8266 + ACS712
+ */
+
+// --- KONFIGURASI PENGGUNA ---
+const char* ssid = "NAMA_WIFI";
+const char* password = "PASSWORD_WIFI";
+const char* mqtt_server = "192.168.1.10";
+
+// Ganti topik sesuai alat (misal: rumah/pompa atau rumah/mesincuci)
+const char* topicCurrent = "rumah/mesincuci/arus";
+const char* topicRelay   = "rumah/mesincuci/relay/set";
+const char* topicStatus  = "rumah/mesincuci/relay/state";
+
+// --- PIN & SENSOR ---
+const int sensorPin = A0;
+const int relayPin  = 13; // D7
+const float mVperAmp = 185.0; // 185 untuk ACS712-5A, 100 untuk 20A, 66 untuk 30A
+const float Vref = 3.3; // ESP8266 ADC biasanya maks 1V atau 3.3V tergantung board. Cek NodeMCU (biasanya sudah ada divider jadi aman baca 3.3V input, tapi logicnya 1V=1023). 
+// Kalibrasi manual mungkin diperlukan.
+
+float offsetADC = 512.0; // Nilai tengah (sekitar 2.5V di Arduino 5V, atau separuh range di ESP)
+unsigned long lastMsg = 0;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// ================== CALLBACK ==================
+void callback(char* topic, byte* payload, unsigned int length) {
+  String msg;
+  for (int i = 0; i < length; i++) msg += (char)payload[i];
+
+  if (String(topic) == topicRelay) {
+    if (msg == "OFF") {
+      digitalWrite(relayPin, HIGH); // Relay Modul biasanya Active LOW (LOW=Nyala, HIGH=Mati/Cut)
+      client.publish(topicStatus, "OFF");
+      Serial.println("Alat Dimatikan Remote");
+    } else if (msg == "ON") {
+      digitalWrite(relayPin, LOW);
+      client.publish(topicStatus, "ON");
+      Serial.println("Alat Dinyalakan Remote");
+    }
+  }
+}
+
+void reconnectMQTT() {
+  while (!client.connected()) {
+    // Client ID unik per alat
+    if (client.connect("ESP8266-MesinCuci")) {
+      client.subscribe(topicRelay);
+      Serial.println("MQTT Connected");
+    } else {
+      delay(5000);
+    }
+  }
+}
+
+// ================== SETUP ==================
+void setup() {
+  Serial.begin(115200);
+  pinMode(relayPin, OUTPUT);
+  digitalWrite(relayPin, LOW); // Default ON (Nyala)
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+  
+  // Kalibrasi sederhana titik nol saat startup
+  long sum = 0;
+  for(int i=0; i<50; i++) { sum += analogRead(sensorPin); delay(2); }
+  offsetADC = sum / 50.0;
+}
+
+// ================== LOOP ==================
+void loop() {
+  if (!client.connected()) reconnectMQTT();
+  client.loop();
+
+  // Kirim data setiap 2 detik (Non-blocking)
+  unsigned long now = millis();
+  if (now - lastMsg > 2000) {
+    lastMsg = now;
+
+    // Sampling Arus (Root Mean Square sederhana)
+    float currentPeak = 0;
+    int maxVal = 0;
+    int minVal = 1024;
+    
+    // Sampling selama 100ms (cukup untuk gelombang 50Hz/60Hz)
+    unsigned long startSample = millis();
+    while (millis() - startSample < 100) {
+      int readValue = analogRead(sensorPin);
+      if (readValue > maxVal) maxVal = readValue;
+      if (readValue < minVal) minVal = readValue;
+    }
+    
+    // Hitung Amper (Estimasi Peak-to-Peak)
+    // NodeMCU ADC membaca 0-1V (nilai 0-1024). Perlu diperhatikan tegangan output ACS712.
+    // Jika ACS712 5V version, output tengah 2.5V. NodeMCU tidak bisa baca langsung tanpa Voltage Divider!
+    // Asumsi: Anda sudah pakai Voltage Divider atau sensor kompatibel 3.3V.
+    
+    float peakVoltage = (maxVal - minVal) * (3.3 / 1024.0); // Asumsi range 3.3V
+    float currentAmps = (peakVoltage * 1000) / mVperAmp; // Konversi ke Amps
+    currentAmps /= 2; // Bagi 2 untuk estimasi RMS kasar dari Peak-to-Peak
+
+    if(currentAmps < 0.1) currentAmps = 0; // Filter noise
+
+    char buf[10];
+    dtostrf(currentAmps, 4, 2, buf);
+    client.publish(topicCurrent, buf);
+    Serial.print("Arus: "); Serial.println(buf);
+  }
+}

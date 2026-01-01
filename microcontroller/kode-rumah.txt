@@ -1,0 +1,135 @@
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+/*
+ * Project: Smart Room Node (Logic Safety & Occupancy)
+ * Board: ESP8266 (NodeMCU 1.0)
+ * Context: 1 MCU per Kamar [User Context]
+ */
+
+// --- KONFIGURASI PENGGUNA ---
+const char* ssid = "NAMA_WIFI";        // Ganti dengan WiFi Anda
+const char* password = "PASSWORD_WIFI";
+const char* mqtt_server = "192.168.1.10"; // IP Server MQTT/Broker
+const int mqtt_port = 1883;
+
+// Topik MQTT (Unik per kamar, misal: kamar1, kamar2, dst)
+const char* topicStatus    = "rumah/kamar1/status";    // Payload: "OCCUPIED" / "EMPTY"
+const char* topicLampuState= "rumah/kamar1/lampu";     // Payload: "ON" / "OFF" (Feedback)
+const char* topicLampuCmd  = "rumah/kamar1/lampu/set"; // Payload: "ON" / "OFF" (Command dari Dashboard)
+
+// --- PIN GPIO ---
+const int pinRelay = 14; // D5
+const int pinPIR   = 16; // D0
+const int pinLED   = 2;  // D4 (Built-in LED, aktif LOW)
+
+// --- LOGIKA WAKTU (Non-Blocking) ---
+unsigned long lastMotionTime = 0;
+const unsigned long motionTimeout = 300000; // 5 Menit (300.000 ms) dianggap kosong
+bool isOccupied = false;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// ================== CALLBACK MQTT ==================
+void callback(char* topic, byte* payload, unsigned int length) {
+  String msg = "";
+  for (int i = 0; i < length; i++) msg += (char)payload[i];
+  
+  Serial.print("Pesan masuk ["); Serial.print(topic); Serial.print("]: "); Serial.println(msg);
+
+  // Logika Kontrol Lampu dari Dashboard
+  if (String(topic) == topicLampuCmd) {
+    if (msg == "ON") {
+      digitalWrite(pinRelay, HIGH); // Nyalakan Lampu
+      client.publish(topicLampuState, "ON");
+      Serial.println("Lampu dinyalakan via Remote");
+    } 
+    else if (msg == "OFF") {
+      // REQUIREMENT CHECK: Jangan matikan jika ada orang 
+      if (isOccupied) {
+        Serial.println("PERINGATAN: Perintah matikan lampu DITOLAK karena kamar berpenghuni!");
+        // Kirim notifikasi atau kembalikan status ON ke dashboard agar toggle kembali nyala
+        client.publish(topicLampuState, "ON"); 
+      } else {
+        digitalWrite(pinRelay, LOW); // Matikan Lampu
+        client.publish(topicLampuState, "OFF");
+        Serial.println("Lampu dimatikan via Remote (Kamar Kosong)");
+      }
+    }
+  }
+}
+
+// ================== FUNGSI KONEKSI ==================
+void setup_wifi() {
+  delay(10);
+  Serial.print("Menghubungkan WiFi: "); Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500); Serial.print(".");
+  }
+  Serial.println("\nWiFi Terhubung, IP: "); Serial.println(WiFi.localIP());
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    // Client ID harus unik jika ada banyak kamar
+    if (client.connect("ESP8266-Kamar1")) { 
+      Serial.println("MQTT Terhubung!");
+      client.subscribe(topicLampuCmd); // Subscribe ke perintah dashboard
+      // Kirim status awal
+      client.publish(topicStatus, "EMPTY");
+      client.publish(topicLampuState, "OFF");
+    } else {
+      Serial.print("Gagal MQTT, rc="); Serial.print(client.state());
+      delay(5000);
+    }
+  }
+}
+
+// ================== SETUP ==================
+void setup() {
+  Serial.begin(115200);
+  pinMode(pinRelay, OUTPUT);
+  pinMode(pinLED, OUTPUT);
+  pinMode(pinPIR, INPUT);
+
+  digitalWrite(pinRelay, LOW); // Default Mati
+  digitalWrite(pinLED, HIGH);  // LED Mati
+
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
+}
+
+// ================== LOOP ==================
+void loop() {
+  if (!client.connected()) reconnect();
+  client.loop();
+
+  // 1. Baca Sensor PIR
+  int pirState = digitalRead(pinPIR);
+
+  // 2. Deteksi Gerakan
+  if (pirState == HIGH) {
+    if (!isOccupied) {
+      isOccupied = true;
+      Serial.println("Status: OCCUPIED (Ada Orang)");
+      client.publish(topicStatus, "OCCUPIED");
+      digitalWrite(pinLED, LOW); // LED Indikator Nyala
+    }
+    lastMotionTime = millis(); // Reset timer setiap ada gerakan
+  }
+
+  // 3. Logika Timer (Menentukan Kapan Kamar Kosong)
+  if (isOccupied && (millis() - lastMotionTime > motionTimeout)) {
+    isOccupied = false;
+    Serial.println("Status: EMPTY (Tidak ada orang selama 5 menit)");
+    client.publish(topicStatus, "EMPTY");
+    
+    // Opsional: Matikan lampu otomatis untuk hemat energi
+    digitalWrite(pinRelay, LOW); 
+    client.publish(topicLampuState, "OFF");
+    digitalWrite(pinLED, HIGH);
+  }
+}

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Home Monitor - IoT Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/header.css">
+    <link rel="stylesheet" href="css/cards.css">
+    <link rel="stylesheet" href="css/simulator.css">
+    <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">⚙️ Pengaturan MQTT</h3>
+                <button class="modal-close" onclick="closeSettingsModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Alamat Broker</label>
+                    <input type="text" class="form-input" id="mqttBroker" placeholder="localhost">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Port WebSocket</label>
+                    <input type="number" class="form-input" id="mqttPort" placeholder="9001">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Username (Opsional)</label>
+                    <input type="text" class="form-input" id="mqttUsername" placeholder="username">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password (Opsional)</label>
+                    <input type="password" class="form-input" id="mqttPassword" placeholder="password">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSettingsModal()">Batal</button>
+                <button class="btn btn-primary" onclick="saveSettings()">Simpan & Hubungkan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">🏠</div>
+            <div>
+                <div class="header-title">Smart Home Monitor</div>
+                <div class="header-subtitle">Yogyakarta Smart Rental</div>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="mqtt-status">
+                <span class="status-dot" id="mqttStatusDot"></span>
+                <span id="mqttStatusText">Disconnected</span>
+            </div>
+            <div class="mode-switcher">
+                <button class="mode-btn active" id="modeBtn" onclick="toggleModeDropdown()">
+                    <span id="modeBtnIcon">📊</span>
+                    <span id="modeBtnText">Monitor</span>
+                    <span>▼</span>
+                </button>
+                <div class="mode-dropdown" id="modeDropdown">
+                    <div class="mode-option active" data-mode="monitor" onclick="setMode('monitor')">
+                        <span>📊</span> Monitor Mode
+                    </div>
+                    <div class="mode-option" data-mode="simulator" onclick="setMode('simulator')">
+                        <span>🔧</span> Simulator Mode
+                    </div>
+                </div>
+            </div>
+            <button class="settings-btn" onclick="openSettingsModal()">⚙️</button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Monitor Mode -->
+        <div id="monitorMode">
+            <!-- System Status -->
+            <div class="system-status">
+                <div class="status-card">
+                    <div class="status-icon blue">📡</div>
+                    <div class="status-info">
+                        <h4>Status Koneksi</h4>
+                        <div class="value" id="connectionStatus">Offline</div>
+                    </div>
+                </div>
+                <div class="status-card">
+                    <div class="status-icon green">📱</div>
+                    <div class="status-info">
+                        <h4>Perangkat Aktif</h4>
+                        <div class="value" id="activeDevices">0 / 5</div>
+                    </div>
+                </div>
+                <div class="status-card">
+                    <div class="status-icon amber">⚡</div>
+                    <div class="status-info">
+                        <h4>Total Daya</h4>
+                        <div class="value" id="totalPower">0 W</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rooms Section -->
+            <h3 class="section-title">Kamar</h3>
+            <div class="cards-grid" id="roomsGrid"></div>
+
+            <!-- Appliances Section -->
+            <h3 class="section-title">Peralatan</h3>
+            <div class="cards-grid" id="appliancesGrid"></div>
+        </div>
+
+        <!-- Simulator Mode -->
+        <div id="simulatorMode" class="hidden">
+            <div class="simulator-container">
+                <div class="simulator-card">
+                    <h3 class="simulator-title">🔧 Simulator Perangkat IoT</h3>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Pilih Perangkat</label>
+                        <select class="form-select" id="simDevice" onchange="updateSimulatorControls()">
+                            <option value="kamar1">🛏️ Kamar 1</option>
+                            <option value="kamar2">🛏️ Kamar 2</option>
+                            <option value="kamar3">🛏️ Kamar 3</option>
+                            <option value="mesincuci">🧺 Mesin Cuci</option>
+                            <option value="pompa">💧 Pompa Air</option>
+                        </select>
+                    </div>
+
+                    <!-- Room Controls -->
+                    <div id="roomControls">
+                        <div class="form-group">
+                            <label class="form-label">Status Hunian</label>
+                            <div class="radio-group">
+                                <div class="radio-option">
+                                    <input type="radio" name="simOccupancy" id="simOccupied" value="OCCUPIED" checked>
+                                    <label for="simOccupied">👤 Berpenghuni</label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" name="simOccupancy" id="simEmpty" value="EMPTY">
+                                    <label for="simEmpty">🚫 Kosong</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Status Lampu</label>
+                            <div class="radio-group">
+                                <div class="radio-option">
+                                    <input type="radio" name="simLamp" id="simLampOn" value="ON" checked>
+                                    <label for="simLampOn">💡 Nyala</label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" name="simLamp" id="simLampOff" value="OFF">
+                                    <label for="simLampOff">⚫ Mati</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-success" onclick="publishRoomStatus()">📤 Publish Status</button>
+                            <button class="btn btn-warning" onclick="publishRoomLamp()">💡 Publish Lampu</button>
+                        </div>
+                    </div>
+
+                    <!-- Appliance Controls -->
+                    <div id="applianceControls" class="hidden">
+                        <div class="form-group">
+                            <label class="form-label">Arus Listrik (Ampere)</label>
+                            <div class="slider-container">
+                                <input type="range" class="slider" id="simCurrent" min="0" max="30" step="0.1" value="0" oninput="updateCurrentDisplay()">
+                                <span class="slider-value" id="simCurrentValue">0.0 A</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Status Relay</label>
+                            <div class="radio-group">
+                                <div class="radio-option">
+                                    <input type="radio" name="simRelay" id="simRelayOn" value="ON" checked>
+                                    <label for="simRelayOn">🟢 Aktif</label>
+                                </div>
+                                <div class="radio-option">
+                                    <input type="radio" name="simRelay" id="simRelayOff" value="OFF">
+                                    <label for="simRelayOff">🔴 Mati</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-success" onclick="publishApplianceCurrent()">⚡ Publish Arus</button>
+                            <button class="btn btn-warning" onclick="publishApplianceRelay()">🔌 Publish Relay</button>
+                        </div>
+                    </div>
+
+                    <!-- Topic Info -->
+                    <div class="topic-info" id="topicInfo"></div>
+                </div>
+
+                <!-- Publish Log -->
+                <div class="simulator-card">
+                    <h3 class="simulator-title">📋 Log Publikasi</h3>
+                    <div class="publish-log" id="publishLog">
+                        <div class="log-header">Riwayat Pesan</div>
+                        <div class="log-content" id="logContent">
+                            <div class="log-empty">Belum ada pesan yang dipublikasikan</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- SVG Gradient Definition -->
+    <svg width="0" height="0">
+        <defs>
+            <linearGradient id="sparklineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:0.3" />
+                <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0" />
+            </linearGradient>
+        </defs>
+    </svg>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/state.js"></script>
+    <script src="js/mqtt-client.js"></script>
+    <script src="js/ui-rooms.js"></script>
+    <script src="js/ui-appliances.js"></script>
+    <script src="js/ui-system.js"></script>
+    <script src="js/ui-mode.js"></script>
+    <script src="js/simulator.js"></script>
+    <script src="js/settings.js"></script>
+    <script src="js/toast.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
