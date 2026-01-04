@@ -1,0 +1,15 @@
+# Folder untuk menyimpan gambar dokumentasi
+# 
+# File yang perlu ditambahkan:
+# - wiring-kamar.png (dari Wokwi)
+# - wiring-peralatan.png (dari Wokwi)
+# - architecture.png (render dari diagrams/architecture.puml)
+# - data-flow.png (render dari diagrams/data-flow.puml)
+# - network-topology.png (render dari diagrams/network-topology.puml)
+# - foto-perangkat-kamar.jpg
+# - foto-perangkat-peralatan.jpg
+# - foto-setup-keseluruhan.jpg
+# - screenshot-monitor-mode.png
+# - screenshot-simulator-mode.png
+# - screenshot-toast.png
+# - screenshot-settings.png
